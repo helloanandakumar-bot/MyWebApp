@@ -1,0 +1,64 @@
+name: Build and Deploy .NET App
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: self-hosted   # Uses your local Windows machine
+
+    env:
+      DEPLOY_PATH: C:\deployments\MyWebApp
+      APP_PORT: 5050
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore dependencies
+        run: dotnet restore MyWebApp/MyWebApp.csproj
+
+      - name: Build
+        run: dotnet build MyWebApp/MyWebApp.csproj --configuration Release --no-restore
+
+      - name: Publish
+        run: dotnet publish MyWebApp/MyWebApp.csproj --configuration Release --output ${{ env.DEPLOY_PATH }} --no-build
+
+      - name: Stop existing app (if running)
+        shell: powershell
+        run: |
+          $proc = Get-Process -Name "MyWebApp" -ErrorAction SilentlyContinue
+          if ($proc) {
+            Stop-Process -Name "MyWebApp" -Force
+            Write-Host "Stopped existing MyWebApp process"
+          } else {
+            Write-Host "No existing process found"
+          }
+
+      - name: Start application
+        shell: powershell
+        run: |
+          $env:ASPNETCORE_URLS = "http://0.0.0.0:${{ env.APP_PORT }}"
+          Start-Process -FilePath "${{ env.DEPLOY_PATH }}\MyWebApp.exe" `
+            -WorkingDirectory "${{ env.DEPLOY_PATH }}" `
+            -WindowStyle Hidden
+          Write-Host "App started on port ${{ env.APP_PORT }}"
+
+      - name: Verify deployment
+        shell: powershell
+        run: |
+          Start-Sleep -Seconds 5
+          try {
+            $response = Invoke-WebRequest -Uri "http://localhost:${{ env.APP_PORT }}/api/hello" -UseBasicParsing
+            Write-Host "✅ App is running! Status: $($response.StatusCode)"
+          } catch {
+            Write-Host "❌ App verification failed: $_"
+            exit 1
+          }
